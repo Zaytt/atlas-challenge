@@ -10,7 +10,6 @@ export const countries = sqliteTable('countries', {
   currency: text('currency').notNull(),
 });
 
-// TODO no foreign key constraint on countryCode
 export const employees = sqliteTable('employees', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull(),
@@ -38,7 +37,7 @@ export const payrollCycles = sqliteTable('payroll_cycles', {
 export const payItems = sqliteTable('pay_items', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   payrollCycleId: integer('payroll_cycle_id').notNull().references(() => payrollCycles.id),
-  employeeId: integer('employee_id').notNull(),
+  employeeId: integer('employee_id').notNull().references(() => employees.id),
   type: text('type').notNull(),
   amount: real('amount').notNull(),
   currency: text('currency').notNull(),
@@ -60,4 +59,5 @@ export const payrollCyclesRelations = relations(payrollCycles, ({ one, many }) =
 
 export const payItemsRelations = relations(payItems, ({ one }) => ({
   cycle: one(payrollCycles, { fields: [payItems.payrollCycleId], references: [payrollCycles.id] }),
+  employee: one(employees, { fields: [payItems.employeeId], references: [employees.id] }),
 }));

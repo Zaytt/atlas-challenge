@@ -13,4 +13,19 @@ describe('db bootstrap', () => {
     const currencies = new Set(rows.map((r) => r.currency));
     expect(currencies).toEqual(new Set(['EUR', 'GBP', 'USD']));
   });
+
+  it('rejects pay items that reference an unknown employee', () => {
+    expect(() =>
+      db
+        .insert(payItems)
+        .values({
+          payrollCycleId: 2,
+          employeeId: 9999,
+          type: 'earning',
+          amount: 1000,
+          currency: 'EUR',
+        })
+        .run(),
+    ).toThrow(/FOREIGN KEY constraint failed/);
+  });
 });

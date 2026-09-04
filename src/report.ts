@@ -1,29 +1,146 @@
-import { eq } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  eq,
+  gte,
+  inArray,
+  lte,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 import { db, schema } from './db/index.js';
+import type {
+  EmployeeSummaryFilters,
+  GlobalSummaryFilters,
+} from './utils/validation.js';
 
-const { payrollCycles, payItems, employees } = schema;
+const { countries, employees, payGroups, payrollCycles, payItems } = schema;
 
-// Build company-wide payroll totals across all cycles.
-// TODO poorly designed summary. Currently it is adding all the currencies into the same totals instead of summing up the totals for each currency separately
-// TODO Suggestion: Add parameters to this function to allow for filtering by currency, dates, pay group and status
-export function buildGlobalSummary() {
-  const cycles = db.select().from(payrollCycles).all();
+export type GlobalSummaryRow = {
+  countryCode: string;
+  countryName: string;
+  currency: string;
+  totalEarnings: number;
+  totalDeductions: number;
+  totalEmployerCost: number;
+};
 
-  let totalEarnings = 0;
-  let totalDeductions = 0;
-  let totalEmployerCost = 0;
+export type EmployeeSummaryRow = {
+  employeeId: number;
+  employeeName: string;
+  countryCode: string;
+  currency: string;
+  totalEarnings: number;
+  totalDeductions: number;
+  totalEmployerCost: number;
+};
 
-  for (const cycle of cycles) {
-    const items = db.select().from(payItems).where(eq(payItems.payrollCycleId, cycle.id)).all();
-    for (const item of items) {
-      // Look up the employee to attribute this line item.
-      // TODO this line is not doing anything, it is not being used to attribute the line item to the employee
-      db.select().from(employees).where(eq(employees.id, item.employeeId)).get();
-      if (item.type === 'earning') totalEarnings += item.amount;
-      else if (item.type === 'deduction') totalDeductions += item.amount;
-      else if (item.type === 'employer_cost') totalEmployerCost += item.amount;
-    }
+function buildSummaryConditions(filters: GlobalSummaryFilters): SQL[] {
+  const conditions: SQL[] = [];
+
+  if (filters.country !== undefined) {
+    conditions.push(inArray(countries.code, filters.country));
+  }
+  if (filters.payGroupId !== undefined) {
+    conditions.push(eq(payrollCycles.payGroupId, filters.payGroupId));
+  }
+  if (filters.periodStart !== undefined) {
+    conditions.push(gte(payrollCycles.periodEnd, filters.periodStart));
+  }
+  if (filters.periodEnd !== undefined) {
+    conditions.push(lte(payrollCycles.periodStart, filters.periodEnd));
+  }
+  if (filters.cutoffDate !== undefined) {
+    conditions.push(eq(payrollCycles.cutoffDate, filters.cutoffDate));
+  }
+  if (filters.payDate !== undefined) {
+    conditions.push(eq(payrollCycles.payDate, filters.payDate));
+  }
+  if (filters.status !== undefined) {
+    conditions.push(eq(payrollCycles.status, filters.status));
   }
 
-  return { totalEarnings, totalDeductions, totalEmployerCost };
+  return conditions;
+}
+
+export function buildGlobalSummary(
+  filters: GlobalSummaryFilters = {},
+): GlobalSummaryRow[] {
+  const conditions = buildSummaryConditions(filters);
+
+  return db
+    .select({
+      countryCode: countries.code,
+      countryName: countries.name,
+      currency: payItems.currency,
+      totalEarnings:
+        sql<number>`round(sum(case when ${payItems.type} = 'earning' then ${payItems.amount} else 0 end), 2)`.mapWith(
+          Number,
+        ),
+      totalDeductions:
+        sql<number>`round(sum(case when ${payItems.type} = 'deduction' then ${payItems.amount} else 0 end), 2)`.mapWith(
+          Number,
+        ),
+      totalEmployerCost:
+        sql<number>`round(sum(case when ${payItems.type} = 'employer_cost' then ${payItems.amount} else 0 end), 2)`.mapWith(
+          Number,
+        ),
+    })
+    .from(payItems)
+    .innerJoin(
+      payrollCycles,
+      eq(payItems.payrollCycleId, payrollCycles.id),
+    )
+    .innerJoin(payGroups, eq(payrollCycles.payGroupId, payGroups.id))
+    .innerJoin(countries, eq(payGroups.countryCode, countries.code))
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .groupBy(countries.code, countries.name, payItems.currency)
+    .orderBy(asc(countries.code), asc(payItems.currency))
+    .all();
+}
+
+export function buildEmployeeSummary(
+  filters: EmployeeSummaryFilters = {},
+): EmployeeSummaryRow[] {
+  const conditions = buildSummaryConditions(filters);
+  if (filters.employeeId !== undefined) {
+    conditions.push(eq(payItems.employeeId, filters.employeeId));
+  }
+
+  return db
+    .select({
+      employeeId: employees.id,
+      employeeName: employees.name,
+      countryCode: employees.countryCode,
+      currency: payItems.currency,
+      totalEarnings:
+        sql<number>`round(sum(case when ${payItems.type} = 'earning' then ${payItems.amount} else 0 end), 2)`.mapWith(
+          Number,
+        ),
+      totalDeductions:
+        sql<number>`round(sum(case when ${payItems.type} = 'deduction' then ${payItems.amount} else 0 end), 2)`.mapWith(
+          Number,
+        ),
+      totalEmployerCost:
+        sql<number>`round(sum(case when ${payItems.type} = 'employer_cost' then ${payItems.amount} else 0 end), 2)`.mapWith(
+          Number,
+        ),
+    })
+    .from(payItems)
+    .innerJoin(employees, eq(payItems.employeeId, employees.id))
+    .innerJoin(
+      payrollCycles,
+      eq(payItems.payrollCycleId, payrollCycles.id),
+    )
+    .innerJoin(payGroups, eq(payrollCycles.payGroupId, payGroups.id))
+    .innerJoin(countries, eq(payGroups.countryCode, countries.code))
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .groupBy(
+      employees.id,
+      employees.name,
+      employees.countryCode,
+      payItems.currency,
+    )
+    .orderBy(asc(employees.id), asc(payItems.currency))
+    .all();
 }

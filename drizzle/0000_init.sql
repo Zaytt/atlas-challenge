@@ -31,7 +31,7 @@ CREATE TABLE payroll_cycles (
 CREATE TABLE pay_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   payroll_cycle_id INTEGER NOT NULL REFERENCES payroll_cycles(id),
-  employee_id INTEGER NOT NULL,
+  employee_id INTEGER NOT NULL REFERENCES employees(id),
   type TEXT NOT NULL,
   amount REAL NOT NULL,
   currency TEXT NOT NULL
